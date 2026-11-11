@@ -1,0 +1,12 @@
+{
+  "name": "Tap Jazz",
+  "short_name": "Tap Jazz",
+  "description": "画面をタップするだけで、ジャズバンドが一人ずつ集まってくる。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#05060a",
+  "theme_color": "#05060a",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

@@ -1,0 +1,199 @@
+:root {
+  --bg: #05060a;
+  --ink: #f1dcc0;
+  --dim: rgba(241, 220, 192, 0.55);
+  --amber: #e9a94f;
+  --neon: #ff5a6e;
+  --panel: rgba(12, 10, 14, 0.88);
+  --line: rgba(233, 169, 79, 0.25);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Josefin Sans', system-ui, sans-serif;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+#stage {
+  display: block;
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.menu {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 10;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1s;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.menu.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.menu-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: rgba(10, 8, 12, 0.5);
+  color: var(--dim);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.menu-btn:hover,
+.menu-btn[aria-expanded='true'] {
+  color: var(--amber);
+}
+
+.menu-panel {
+  width: min(300px, calc(100vw - 32px));
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 14px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.menu-panel .row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 6px 0;
+  color: var(--dim);
+}
+
+.style-row .style-label {
+  font-family: 'Poiret One', sans-serif;
+  font-size: 20px;
+  color: var(--amber);
+}
+
+.menu-panel input[type='range'] {
+  width: 100%;
+  accent-color: var(--amber);
+}
+
+.menu-panel select {
+  background: #120f12;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: inherit;
+}
+
+.buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.buttons button,
+.link {
+  font: inherit;
+  color: var(--ink);
+  background: rgba(233, 169, 79, 0.08);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 6px;
+  cursor: pointer;
+}
+
+.link {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.buttons button:hover,
+.link:hover {
+  background: rgba(233, 169, 79, 0.18);
+}
+
+.buttons button.on {
+  border-color: var(--neon);
+  color: var(--neon);
+}
+
+.credits {
+  margin: 12px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(241, 220, 192, 0.4);
+}
+
+.toast {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  max-width: calc(100vw - 32px);
+}
+
+.debug {
+  position: fixed;
+  left: 8px;
+  top: 8px;
+  z-index: 9;
+  background: rgba(0, 0, 0, 0.72);
+  color: #9fe;
+  font: 11px/1.45 ui-monospace, Menlo, Consolas, monospace;
+  padding: 8px 10px;
+  border-radius: 6px;
+  white-space: pre;
+  max-width: calc(100vw - 16px);
+  overflow: hidden;
+}
+
+.dbg-actions {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+}
+
+.dbg-actions button {
+  font: inherit;
+  background: #123;
+  color: #9fe;
+  border: 1px solid #355;
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu {
+    transition: none;
+  }
+}
