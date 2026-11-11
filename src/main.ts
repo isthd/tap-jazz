@@ -261,6 +261,17 @@ function longPress() {
 
 bindInput(canvas, { tap, longPress });
 
+// iPad / iPhone: audio can only be unlocked (or resumed after an interruption)
+// inside these gestures, so try on every one of them.
+for (const ev of ['pointerup', 'touchend', 'click', 'keydown'])
+  document.addEventListener(
+    ev,
+    () => {
+      if (phase !== 'start' && !document.hidden) engine.unlock();
+    },
+    { capture: true, passive: true },
+  );
+
 // background tab: pause; come back: resume
 document.addEventListener('visibilitychange', () => {
   if (!engine.started) return;
