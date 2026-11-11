@@ -2,6 +2,8 @@ import type { Chord, Ev } from '../types';
 import { bassPc, guideTonePcs, nearestPc, voice } from '../theory';
 import { bandTacet, chordOf, kimeRhythm, newGroup, nextChordAfter, type PlayCtx } from './common';
 import { pickComp } from './comp';
+import type { StyleDef } from '../styles/style';
+import type { Rng } from '../../util/rng';
 
 export class Pianist {
   prev: number[] = [];
@@ -90,6 +92,27 @@ export class Pianist {
       evs.push(...this.chordEvs(ctx, v, h.beat, h.dur * pedal, vel, h.trip));
     }
     return evs;
+  }
+
+  private lastReact = -99;
+
+  /**
+   * Answer a user tap right away with a chord stab on the tap.
+   * Slow taps get a fuller, longer chord; fast runs are left alone.
+   */
+  react(o: { time: number; ioi: number; vel: number; chord: Chord; style: StyleDef; rng: Rng }): { midi: number; vel: number; dur: number; delay: number }[] {
+    const { ioi, rng } = o;
+    if (ioi < 0.33 || o.time - this.lastReact < 0.3) return [];
+    const slow = ioi > 0.9;
+    if (!slow && !rng.chance(0.7)) return [];
+    const neo = o.style.id === 'neosoul';
+    const v = voice(o.chord, this.prev, { lo: neo ? 51 : 50, hi: neo ? 79 : 76, center: neo ? 64 : 62, voices: slow ? (neo ? 5 : 4) : 3, rng });
+    this.prev = v;
+    this.lastReact = o.time;
+    const vel = Math.min(0.8, (slow ? 0.5 : 0.42) * (0.8 + 0.4 * o.vel));
+    const dur = slow ? 0.9 : 0.22;
+    const roll = neo || (slow && rng.chance(0.4));
+    return v.map((m, i) => ({ midi: m, vel: vel * (i === v.length - 1 ? 1.05 : 0.92), dur, delay: roll ? i * 0.018 : 0 }));
   }
 
   /** While the right hand plays melody/solo: sparse left-hand shells below it. */

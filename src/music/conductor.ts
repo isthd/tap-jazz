@@ -67,6 +67,7 @@ export class Conductor {
   readonly seed: number;
   private rng: Rng;
   private tapRng: Rng;
+  private reactRng: Rng;
   style: StyleDef;
   key: number;
   bpm: number;
@@ -127,6 +128,7 @@ export class Conductor {
     this.seed = opts.seed;
     this.rng = new Rng(opts.seed);
     this.tapRng = this.rng.fork('tap');
+    this.reactRng = this.rng.fork('react');
     this.prng = {
       bass: this.rng.fork('bass'),
       drums: this.rng.fork('drums'),
@@ -267,6 +269,7 @@ export class Conductor {
     let chord: Chord = { root: this.key, q: this.style.id === 'swing' ? '6' : 'maj9' };
     let strong = true;
     let absBeat = -1;
+    let downbeat = false;
     const bar = this.barAt(time + 0.01);
     if (bar) {
       const { info, timing } = bar;
@@ -289,6 +292,7 @@ export class Conductor {
       const lb = Math.max(0, Math.min(3.99, best));
       chord = chordAt(info.chords, lb);
       strong = Math.abs(lb - Math.round(lb)) < 0.01;
+      downbeat = lb < 0.01;
       absBeat = info.abs * 4 + lb;
     }
     if (harmony) {
@@ -340,8 +344,26 @@ export class Conductor {
         notes.push({ time: qt + 0.004 + 0.012 * (i + 1), dur, inst, midi: h, vel: vel * 0.75, ch: 'tap' });
       }
     }
+    if (bar) notes.push(...this.bandReact(bar.info, qt + 0.004, time, ioi, vel, chord, strong, downbeat));
     this.listener.add({ time, absBeat, vel, midi: m });
     return notes;
+  }
+
+  /** Drums and piano answer the tap on the spot (only once they have joined). */
+  private bandReact(info: BarInfo, t: number, time: number, ioi: number, vel: number, chord: Chord, strong: boolean, downbeat: boolean): ScheduledNote[] {
+    const out: ScheduledNote[] = [];
+    if (info.seg === 'silence' || info.seg === 'countin' || info.seg === 'fermata') return out;
+    const rng = this.reactRng;
+    const lead = this.leadFor(info);
+    if (this.active.drums && !info.flags.dropdown) {
+      const hits = this.drums.react({ time, ioi, vel, strong, downbeat, style: this.style.id, intensity: this.intensity, rng });
+      for (const h of hits) out.push({ time: t, dur: 0.5, inst: 'kit', drum: h.drum, vel: h.vel, ch: 'drums' });
+    }
+    if (this.active.piano && lead !== 'piano' && !(info.seg === 'trade' && info.soloist === 'drums')) {
+      const ns = this.piano.react({ time, ioi, vel, chord, style: this.style, rng });
+      for (const n of ns) out.push({ time: t + n.delay, dur: n.dur, inst: this.style.inst.piano, midi: n.midi, vel: n.vel, ch: 'piano' });
+    }
+    return out;
   }
 
   // ------------------------------------------------------------------ bar generation

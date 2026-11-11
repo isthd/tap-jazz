@@ -1,4 +1,5 @@
-import type { DrumId, Ev } from '../types';
+import type { DrumId, Ev, StyleId } from '../types';
+import type { Rng } from '../../util/rng';
 import { kimeRhythm, leadBusy, type PlayCtx } from './common';
 
 const K = 'kit' as const;
@@ -271,7 +272,53 @@ export class Drummer {
     return evs;
   }
 
-  /** Small fill when a part is about to join (conductor asks via flags). */
+  // ----------------------------------------------------------- tap reaction
+  private lastReact = -99;
+  private runStep = 0;
+
+  /**
+   * Answer a user tap right away: an accent on the tap itself.
+   * Slow taps get a big hit, medium taps a snare comp, fast runs a tom run.
+   */
+  react(o: { time: number; ioi: number; vel: number; strong: boolean; downbeat: boolean; style: StyleId; intensity: number; rng: Rng }): { drum: DrumId; vel: number }[] {
+    const { ioi, vel, rng, style } = o;
+    if (o.time - this.lastReact < 0.14) return [];
+    const brush = style === 'swing' && this.mode === 'brushes';
+    const out: { drum: DrumId; vel: number }[] = [];
+    const v = (x: number) => Math.min(0.95, x * (0.75 + 0.5 * vel));
+    if (ioi > 0.9) {
+      // deliberate tap: a big accent
+      this.runStep = 0;
+      if (brush) out.push({ drum: 'brushTap', vel: v(0.62) }, { drum: 'kick', vel: v(0.4) });
+      else if (style === 'bossa') out.push({ drum: 'rim', vel: v(0.7) }, { drum: 'kick', vel: v(0.5) });
+      else if (style === 'neosoul') out.push({ drum: rng.chance(0.5) ? 'clap' : 'snare', vel: v(0.7) }, { drum: 'kick', vel: v(0.65) });
+      else {
+        out.push({ drum: 'snare', vel: v(0.62) }, { drum: 'kick', vel: v(0.55) });
+        if (o.downbeat || (o.strong && o.intensity > 0.5 && rng.chance(0.4))) out.push({ drum: 'crash', vel: v(0.55) });
+      }
+    } else if (ioi > 0.33) {
+      // conversational comping on the tap
+      this.runStep = 0;
+      if (!rng.chance(0.8)) return [];
+      if (brush) out.push({ drum: 'brushTap', vel: v(0.5) });
+      else if (style === 'bossa') out.push({ drum: rng.chance(0.75) ? 'rim' : 'tomHi', vel: v(0.5) });
+      else if (style === 'neosoul') out.push(rng.chance(0.6) ? { drum: 'snare', vel: v(0.4) } : { drum: 'hhOpen', vel: v(0.4) });
+      else {
+        out.push({ drum: 'snare', vel: v(o.strong ? 0.5 : 0.42) });
+        if (o.strong && rng.chance(0.3)) out.push({ drum: 'kick', vel: v(0.45) });
+      }
+    } else {
+      // fast run: follow it with a descending tom run
+      if (brush) out.push({ drum: 'brushTap', vel: v(0.35) });
+      else {
+        const run: DrumId[] = style === 'bossa' ? ['rim', 'tomHi', 'tomMid', 'tomLo'] : ['snare', 'tomHi', 'tomMid', 'tomLo'];
+        out.push({ drum: run[Math.floor((this.runStep % 8) / 2)], vel: v(0.32 + 0.03 * (this.runStep % 8)) });
+        this.runStep++;
+      }
+    }
+    this.lastReact = o.time;
+    return out;
+  }
 }
 
 function shuffle<T>(arr: T[], rng: { next(): number }): T[] {
