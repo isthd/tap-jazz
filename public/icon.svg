@@ -1,1 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#05060a"/><radialGradient id="g" cx="50%" cy="58%" r="45%"><stop offset="0" stop-color="#ffb35c" stop-opacity=".55"/><stop offset="1" stop-color="#ffb35c" stop-opacity="0"/></radialGradient><rect width="512" height="512" fill="url(#g)"/><path d="M256 110c46 76 78 124 78 186a78 78 0 0 1-156 0c0-62 32-110 78-186z" fill="#ffd28f"/><path d="M256 190c22 40 38 66 38 98a38 38 0 0 1-76 0c0-32 16-58 38-98z" fill="#fff6dd"/><rect x="176" y="380" width="160" height="70" rx="10" fill="#7a2a1e"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#1b1a2e"/>
+      <stop offset=".55" stop-color="#0b0c18"/>
+      <stop offset="1" stop-color="#05060a"/>
+    </radialGradient>
+    <radialGradient id="spot" cx="56%" cy="44%" r="42%">
+      <stop offset="0" stop-color="#ffb35c" stop-opacity=".42"/>
+      <stop offset="1" stop-color="#ffb35c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="brass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff1cf"/>
+      <stop offset=".45" stop-color="#ffc56e"/>
+      <stop offset="1" stop-color="#e08a2c"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="url(#spot)"/>
+  <g transform="translate(256 256) scale(.9) translate(-236 -236)">
+  <!-- tap ripples around the first note -->
+  <g fill="none" stroke-linecap="round">
+    <circle cx="190" cy="352" r="62" stroke="#ffc56e" stroke-width="7" opacity=".55"/>
+    <circle cx="190" cy="352" r="96" stroke="#ffc56e" stroke-width="5" opacity=".28"/>
+    <path d="M70 372 A122 122 0 0 1 132 245" stroke="#ff4a5c" stroke-width="5" opacity=".9" filter="url(#glow)"/>
+  </g>
+  <!-- beamed eighth notes -->
+  <g fill="url(#brass)" filter="url(#glow)">
+    <path d="M236 128 L384 92 L384 136 L236 172 Z"/>
+    <rect x="223" y="146" width="17" height="210" rx="4"/>
+    <rect x="371" y="112" width="17" height="210" rx="4"/>
+    <ellipse cx="190" cy="352" rx="50" ry="36" transform="rotate(-22 190 352)"/>
+    <ellipse cx="338" cy="318" rx="50" ry="36" transform="rotate(-22 338 318)"/>
+  </g>
+  </g>
+</svg>
