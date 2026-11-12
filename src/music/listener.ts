@@ -4,6 +4,7 @@
 export interface TapRecord {
   time: number; // audio seconds
   absBeat: number; // beats since the clock started (-1 if clock not running)
+  rawBeat?: number; // unquantized position (for on/off-beat analysis)
   vel: number;
   midi: number;
 }

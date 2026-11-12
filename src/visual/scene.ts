@@ -39,6 +39,8 @@ export class Scene {
   private slowFrames = 0;
   private lastT = performance.now() / 1000;
   hint = '';
+  /** Height of DOM overlays at the top of the screen (the neon sign stays below them). */
+  topInset = 0;
   private neonFlicker = 1;
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -278,7 +280,7 @@ export class Scene {
     ctx.font = `${size}px "Poiret One", "Josefin Sans", sans-serif`;
     ctx.textAlign = 'left';
     const x = w * 0.06;
-    const y = h * 0.11;
+    const y = Math.max(h * 0.11, this.topInset + size + 6);
     const fl = this.neonFlicker * (0.92 + 0.08 * Math.sin(now * 13));
     ctx.globalAlpha = Math.max(0.15, a) * fl;
     ctx.shadowColor = 'rgba(255,40,60,0.9)';

@@ -43,6 +43,16 @@ export class Menu {
           <button class="mute">ミュート</button>
           <button class="reset">リセット</button>
         </div>
+        <div class="howto">
+          <div class="howto-title">タップで曲が変わる</div>
+          <dl>
+            <dt>一定のリズムで刻む</dt><dd>バンドがそのテンポについてくる</dd>
+            <dt>速く連打する</dt><dd>倍テン（ダブルタイム）</dd>
+            <dt>1〜2小節、手を止める</dt><dd>ブレイクダウン → 次のタップで全員復帰</dd>
+            <dt>裏拍を狙って叩く</dt><dd>コードがリハモされてスパイシーに（表拍で元に戻る）</dd>
+            <dt>素早く3回だけ叩いて止める</dt><dd>4度上に転調</dd>
+          </dl>
+        </div>
         <p class="credits">Piano: Salamander Grand Piano (Alexander Holm, CC BY 3.0). その他の音はすべてブラウザ内で合成。<br/>長押し / Shift+Space でスタイル切り替え</p>
       </div>
       <div class="toast" hidden></div>`;

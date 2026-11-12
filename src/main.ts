@@ -13,6 +13,7 @@ import { Scene } from './visual/scene';
 import { bindInput } from './input/tap';
 import { Menu } from './ui/menu';
 import { DebugPanel } from './ui/debug';
+import { ChordBar } from './ui/chords';
 import { decodeShare, encodeShare, readShareFromLocation, shareUrl, type SharePayload } from './ui/share';
 import { newSeed } from './util/rng';
 
@@ -49,6 +50,7 @@ let recorder: SessionRecorder | null = null;
 let recTimer = 0;
 let initial = { style: 'swing' as StyleId, bpm: 0, key: 0 };
 let debug: DebugPanel | null = null;
+const chordBar = new ChordBar();
 
 function pickStartStyle(): StyleId {
   const q = params.get('style') as StyleId | null;
@@ -165,16 +167,28 @@ function onEvent(e: UiEvent) {
       });
       break;
     case 'rest':
-      atAudioTime(e.time + 2, () => (scene.hint = 'タップで次の曲へ'));
+      atAudioTime(e.time + 2, () => {
+        scene.hint = 'タップで次の曲へ';
+        chordBar.show(false);
+      });
       break;
     case 'reset':
       atAudioTime(e.time, () => {
         scene.resetParts();
         scene.showLabel('');
+        chordBar.show(false);
         scene.hint = '';
       });
       break;
+    case 'fx':
+      scene.showLabel(e.text);
+      updateInfo();
+      break;
     case 'bar':
+      atAudioTime(e.time, () => {
+        chordBar.set(e.info, e.upcoming);
+        chordBar.show(true);
+      });
       if (debug) {
         const extra = `seed ${conductor?.seed}  piano ${engine.pianoSource}${engine.forceSynthPiano ? ' (forced synth)' : ''}  next join ${JOIN_AT.find((j) => j.taps > e.tapCount)?.taps ?? '-'}`;
         atAudioTime(e.time, () => debug!.bar(e, extra));
@@ -280,7 +294,11 @@ document.addEventListener('visibilitychange', () => {
 });
 
 function loop() {
-  scene.frame(engine.now());
+  const now = engine.now();
+  scene.frame(now);
+  const pos = conductor?.position(now);
+  if (pos && pos.abs === chordBar.abs) chordBar.beat(pos.beat);
+  scene.topInset = chordBar.bottom();
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

@@ -8,7 +8,7 @@ import { humanize } from './humanizer';
 import { buildChart, chordAt, parseTemplate, reharmonize, transpose, type Chart } from './form';
 import { Listener } from './listener';
 import { Rng, clamp, smoothstep } from '../util/rng';
-import { bebopPcs, chordName, chordTonePcs, guideTonePcs, nearestPc, pc, tensionPcs } from './theory';
+import { NOTE_NAMES, bebopPcs, chordName, chordTonePcs, guideTonePcs, nearestPc, pc, tensionPcs } from './theory';
 import { Bassist } from './players/bassist';
 import { Drummer } from './players/drummer';
 import { Pianist } from './players/pianist';
@@ -33,7 +33,8 @@ export type UiEvent =
   | { type: 'join'; part: PartId; time: number }
   | { type: 'lead'; part: PartId | null; time: number }
   | { type: 'style'; style: StyleId; key: number; bpm: number; time: number }
-  | { type: 'bar'; info: BarInfo; intensity: number; time: number; chord: string; drumMode: string; tapCount: number }
+  | { type: 'bar'; info: BarInfo; intensity: number; time: number; chord: string; drumMode: string; tapCount: number; upcoming: BarChord[][] }
+  | { type: 'fx'; text: string; time: number }
   | { type: 'applause'; time: number; big: boolean }
   | { type: 'session'; time: number }
   | { type: 'song'; time: number; form: string }
@@ -111,6 +112,16 @@ export class Conductor {
   record: InputRec[] = [];
   origin = -1;
   private replayQueue: InputRec[] | null = null;
+  // tap-driven direction: the band reads how you tap and changes the tune
+  private laidOut = false;
+  private lastLayout = -99;
+  private reentry = false;
+  harmLevel = 0;
+  private dtUntil = -1;
+  private lastDt = -99;
+  private lastTempoFx = -Infinity;
+  private lastModTap = -Infinity;
+  private lastModAbs = -99;
 
   listener = new Listener();
   bass = new Bassist();
@@ -269,6 +280,7 @@ export class Conductor {
     let chord: Chord = { root: this.key, q: this.style.id === 'swing' ? '6' : 'maj9' };
     let strong = true;
     let absBeat = -1;
+    let rawBeat = -1;
     let downbeat = false;
     const bar = this.barAt(time + 0.01);
     if (bar) {
@@ -294,6 +306,7 @@ export class Conductor {
       strong = Math.abs(lb - Math.round(lb)) < 0.01;
       downbeat = lb < 0.01;
       absBeat = info.abs * 4 + lb;
+      rawBeat = info.abs * 4 + beat;
     }
     if (harmony) {
       const m = nearestPc(guideTonePcs(chord)[rng.int(0, 1)], this.lastTapMidi - 5);
@@ -345,7 +358,7 @@ export class Conductor {
       }
     }
     if (bar) notes.push(...this.bandReact(bar.info, qt + 0.004, time, ioi, vel, chord, strong, downbeat));
-    this.listener.add({ time, absBeat, vel, midi: m });
+    this.listener.add({ time, absBeat, rawBeat, vel, midi: m });
     return notes;
   }
 
@@ -376,6 +389,10 @@ export class Conductor {
       for (const j of JOIN_AT) if (this.tapCount === j.taps) this.joinQueue.push(j.part);
       if (this.tapCount >= SESSION_AT && !this.sessionReached) this.pendingSession = true;
       if (this.pendingEnd === 'idle') this.pendingEnd = null;
+      if (this.laidOut) {
+        this.laidOut = false;
+        this.reentry = true;
+      }
     }
     // idle: nobody tapping for a while -> wrap the tune up
     const idle = cutoff - this.lastTapAt;
@@ -384,6 +401,118 @@ export class Conductor {
     this.listener.update(cutoff, bps);
     const fresh = this.listener.takeFresh();
     if (fresh) this.soloist.userMotif = fresh;
+    this.readTaps(cutoff);
+  }
+
+  private fx(text: string) {
+    this.hooks.emit({ type: 'fx', text, time: this.hooks.now() });
+  }
+
+  /**
+   * Gestures read from the tap stream ("the tune follows your hands"):
+   *  - steady taps            -> the band follows your tempo
+   *  - a fast flurry          -> double time for four bars
+   *  - stop for a bar         -> breakdown; the next tap brings the band back with a crash
+   *  - mostly off-beat taps   -> reharmonized (spicier) changes; on-beat taps bring them back
+   *  - three quick taps, stop -> modulate up a fourth
+   */
+  private readTaps(cutoff: number) {
+    if (this.mode !== 'song' && this.mode !== 'buildup') return;
+    const all = this.listener.taps;
+    const taps = all.filter((t) => t.time <= cutoff);
+    if (!taps.length) return;
+    const barSec = (60 / this.curBpm) * 4;
+    const last = taps[taps.length - 1];
+    const b = this.abs;
+
+    // 1. tempo follows steady taps
+    const rec = taps.slice(-6);
+    let offTempo = false;
+    if (rec.length >= 5 && cutoff - last.time < barSec && last.time - this.lastTempoFx > barSec * 1.5) {
+      const iois = rec.slice(1).map((t, i) => t.time - rec[i].time);
+      const med = [...iois].sort((x, y) => x - y)[Math.floor(iois.length / 2)];
+      if (med >= 0.3 && med <= 1.5 && iois.every((x) => Math.abs(x - med) < med * 0.1)) {
+        const raw = 60 / med;
+        const [lo, hi] = this.style.bpmRange;
+        const c = [raw / 2, raw, raw * 2].filter((x) => x >= lo - 1 && x <= hi + 1).sort((x, y) => Math.abs(x - this.bpm) - Math.abs(y - this.bpm))[0];
+        if (c !== undefined && Math.abs(c - this.bpm) / this.bpm > 0.05) {
+          offTempo = true;
+          this.bpm = Math.round(clamp(c, lo, hi));
+          this.pendingTempo = null;
+          this.lastTempoFx = last.time;
+          this.fx(`— the band follows you · ${this.bpm} BPM`);
+        }
+      }
+    }
+
+    // 2. a flurry of taps -> double time
+    if (this.active.drums && b - this.lastDt >= 8 && !this.laidOut) {
+      const n = taps.filter((t) => t.time > cutoff - 1.2).length;
+      if (n >= 7) {
+        this.dtUntil = b + 4;
+        this.lastDt = b;
+        this.fx('— double time!');
+      }
+    }
+
+    // 3. stop tapping for a bar -> breakdown
+    const gap = cutoff - last.time;
+    if (!this.laidOut && gap > barSec * 1.5 && gap < IDLE_END / 2 && b - this.lastLayout >= 6 && (this.active.bass || this.active.drums)) {
+      const before = taps.filter((t) => t.time > last.time - barSec * 2).length;
+      if (before >= 5) {
+        this.laidOut = true;
+        this.lastLayout = b;
+        this.dtUntil = -1;
+        this.fx('— breakdown · tap to bring the band back');
+      }
+    }
+
+    // 4. syncopated taps -> reharmonize (a steady stream at another tempo is not syncopation)
+    if (offTempo || last.time - this.lastTempoFx < barSec * 2) return this.readModulation(cutoff, b);
+    const win = taps.filter((t) => t.time > cutoff - barSec * 2 && (t.rawBeat ?? -1) >= 0);
+    if (win.length >= 4) {
+      // clearly between the beats (a slightly late or early tap is still "on the beat")
+      const off =
+        win.filter((t) => {
+          const f = t.rawBeat! - Math.floor(t.rawBeat!);
+          return f > 0.3 && f < 0.7;
+        }).length / win.length;
+      if (this.harmLevel === 0 && off >= 0.6) {
+        this.harmLevel = 1;
+        this.fx('— off the beat · the changes get spicy');
+      } else if (this.harmLevel === 1 && off <= 0.2) {
+        this.harmLevel = 0;
+        this.fx('— on the beat · back to the plain changes');
+      }
+    }
+
+    this.readModulation(cutoff, b);
+  }
+
+  // 5. three quick taps, then nothing -> modulate up a fourth
+  private readModulation(cutoff: number, b: number) {
+    const all = this.listener.taps;
+    if (all.length >= 3 && this.pendingKey === null && b - this.lastModAbs >= 8) {
+      const [t1, t2, t3] = all.slice(-3);
+      const pre = all[all.length - 4];
+      if (t3.time !== this.lastModTap && t2.time - t1.time < 0.2 && t3.time - t2.time < 0.2 && (!pre || t1.time - pre.time > 0.6) && cutoff - t3.time > 0.35) {
+        this.lastModTap = t3.time;
+        this.lastModAbs = b;
+        this.pendingKey = pc(this.key + 5);
+        this.fx(`— modulation → ${NOTE_NAMES[this.pendingKey]}`);
+      }
+    }
+  }
+
+  /** Apply the tap-driven state to a live bar. */
+  private decorate(info: BarInfo) {
+    const live = info.seg === 'buildup' || info.seg === 'head' || info.seg === 'solo' || info.seg === 'trade' || info.seg === 'headOut';
+    if (!live || info.flags.modulate) return;
+    if (this.laidOut) {
+      info.flags.dropdown = true;
+      delete info.flags.doubleTime;
+      delete info.flags.stopTime;
+    } else if (info.abs < this.dtUntil && this.active.drums) info.flags.doubleTime = true;
   }
 
   private generateBar() {
@@ -392,6 +521,15 @@ export class Conductor {
     this.processInputs(T - LOOK);
     if (!this.infos.has(b)) this.planInto(b);
     const info = this.infos.get(b)!;
+    this.decorate(info);
+    if (this.reentry) {
+      this.reentry = false;
+      if (info.flags.dropdown) {
+        delete info.flags.dropdown;
+        info.flags.crash = true;
+        this.fx('— and the band is back!');
+      }
+    }
     // activate a pending join on this downbeat
     if (this.pendingJoin && this.pendingJoin.abs <= b) {
       const p = this.pendingJoin.part;
@@ -497,6 +635,7 @@ export class Conductor {
       chord: info.chords.map((c) => chordName(c.chord)).join('  '),
       drumMode: this.drums.mode,
       tapCount: this.tapCount,
+      upcoming: [next.chords, ...this.peekBars(3)],
     });
 
     if (info.seg === 'fermata') this.hooks.emit({ type: 'applause', time: timing.end - 0.6, big: true });
@@ -619,6 +758,7 @@ export class Conductor {
   private planInto(abs: number) {
     if (this.infos.has(abs)) return;
     const info = this.planBar(abs);
+    this.decorate(info);
     this.infos.set(abs, info);
   }
 
@@ -690,7 +830,7 @@ export class Conductor {
           return this.planBar(abs);
         }
         const fb = this.buildBar % 8;
-        const bars = transpose(this.chart.bars, this.key);
+        const bars = this.buildupBars();
         this.buildBar++;
         if (fb === 0) this.compLead = this.prng.form.chance(this.style.id === 'bossa' ? 0.25 : 0.5) ? 'piano' : 'guitar';
         const nextIsSong = this.pendingSession && this.buildBar % 4 === 0 && PARTS.every((p) => this.active[p]);
@@ -747,12 +887,62 @@ export class Conductor {
     }
   }
 
+  private segAt(s: number): { i: number; acc: number } {
+    let acc = 0;
+    let i = 0;
+    for (; i < this.segs.length; i++) {
+      if (s < acc + this.segs[i].bars) break;
+      acc += this.segs[i].bars;
+    }
+    return { i, acc };
+  }
+
+  /** Reharmonization amount for a segment, pushed up by off-beat tapping. */
+  private amountFor(seg: SegPlan['seg']): number {
+    const head = seg === 'head' || seg === 'headOut';
+    const base = head ? 0 : seg === 'trade' ? 0.35 : 0.42;
+    return this.harmLevel ? Math.min(0.9, base + (head ? 0.3 : 0.4)) : base;
+  }
+
+  private buildupBars(): BarChord[][] {
+    return this.harmLevel ? this.chorusChart(0, 0.45) : transpose(this.chart.bars, this.key);
+  }
+
+  /** Chords of the bars after the next planned one (a forecast; taps can still change them). */
+  private peekBars(count: number): BarChord[][] {
+    const out: BarChord[][] = [];
+    if (this.mode === 'song') {
+      const formLen = this.chart.bars.length;
+      for (let k = 0; k < count; k++) {
+        const s = this.songBar + k;
+        if (s >= this.songLen) break;
+        const seg = this.segs[this.segAt(s).i];
+        out.push(this.chorusChart(Math.floor(s / formLen), this.amountFor(seg.seg))[s % formLen]);
+      }
+    } else if (this.mode === 'buildup') {
+      const bars = this.buildupBars();
+      for (let k = 0; k < count; k++) out.push(bars[(this.buildBar + k) % 8]);
+    } else if (this.mode === 'tag') {
+      const len = this.tagTpl.length * 3;
+      for (let k = 0; k < count && this.tagBar + k < len; k++) out.push(this.tagTpl[(this.tagBar + k) % this.tagTpl.length]);
+    }
+    return out;
+  }
+
+  /** Bar and beat at an audio time (for the chord display). */
+  position(time: number): { abs: number; beat: number } | null {
+    const bar = this.barAt(time);
+    return bar ? { abs: bar.info.abs, beat: timeToBeat(bar.timing, time) } : null;
+  }
+
   private replayEndedIdle() {
     return false;
   }
 
   private enterTag(abs: number): BarInfo {
     this.mode = 'tag';
+    this.laidOut = false;
+    this.dtUntil = -1;
     this.tagBar = 0;
     const tpl = this.prng.form.pick(this.style.tags);
     this.tagTpl = transpose(parseTemplate(tpl), this.key);
@@ -777,18 +967,12 @@ export class Conductor {
     // early ending requested: leave at the next 8-bar boundary
     if (this.pendingEnd && s % 8 === 0 && s > 0) return this.enterTag(abs);
     if (s >= this.songLen) return this.enterTag(abs);
-    let acc = 0;
-    let segIdx = 0;
-    for (; segIdx < this.segs.length; segIdx++) {
-      if (s < acc + this.segs[segIdx].bars) break;
-      acc += this.segs[segIdx].bars;
-    }
+    const { i: segIdx, acc } = this.segAt(s);
     const seg = this.segs[segIdx];
     const segBar = s - acc;
     const formBar = s % formLen;
     const chorus = Math.floor(s / formLen);
-    const amount = seg.seg === 'head' ? 0 : seg.seg === 'headOut' ? 0 : seg.seg === 'trade' ? 0.35 : 0.42;
-    const chords = this.chorusChart(chorus, amount)[formBar];
+    const chords = this.chorusChart(chorus, this.amountFor(seg.seg))[formBar];
     this.songBar++;
     const rng = this.prng.form;
     if (formBar % 8 === 0) this.compLead = rng.chance(this.style.id === 'bossa' ? 0.25 : 0.5) ? 'piano' : 'guitar';
@@ -870,6 +1054,10 @@ export class Conductor {
     this.piano.reset();
     this.guitar.reset();
     this.intensity = 0.25;
+    this.laidOut = false;
+    this.reentry = false;
+    this.harmLevel = 0;
+    this.dtUntil = -1;
     this.hooks.emit({ type: 'reset', time });
   }
 
