@@ -50,7 +50,7 @@ src/
   audio/    engine.ts（初期化・再生）, samplers.ts（サンプラー・段階読み込み）, dsp.ts（楽器の合成）, mix.ts（ミキサー・リバーブ・アンビエンス）, recorder.ts
   music/    conductor.ts（時計・構成・熱量・タップの音）, form.ts（進行・リハーモナイズ）, theory.ts（コード・スケール・ボイシング）,
             humanizer.ts, listener.ts（タップ解析・モチーフ抽出）, players/（各奏者）, styles/（3 スタイル）
-  visual/   scene.ts, effects.ts
+  visual/   scene.ts, band.ts（three.js のピクセル演奏者）, effects.ts
   input/    tap.ts
   ui/       menu.ts, share.ts, debug.ts
 ```

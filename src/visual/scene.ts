@@ -1,7 +1,8 @@
-// Night jazz bar: back wall, stage with abstract silhouettes, spotlights,
+// Night jazz bar: back wall, stage with pixel-art (three.js voxel) musicians, spotlights,
 // the candle on the counter (the tap target), ripples, particles and smoke.
 import type { ChannelId, PartId, ScheduledNote } from '../music/types';
 import { Effects } from './effects';
+import { Band, type PartDrawState } from './band';
 
 const HUE: Record<ChannelId, number> = { bass: 28, drums: 44, guitar: 14, perc: 352, piano: 205, tap: 38 };
 const POS: Record<PartId, number> = { guitar: 0.17, drums: 0.36, bass: 0.53, piano: 0.73, perc: 0.9 };
@@ -19,6 +20,7 @@ export class Scene {
   private h = 0;
   private dpr = 1;
   fx = new Effects();
+  band = new Band();
   state: SceneState = 'start';
   progress = 0;
   private parts: Record<PartId, PartVis> = {
@@ -59,6 +61,7 @@ export class Scene {
     this.canvas.style.width = this.w + 'px';
     this.canvas.style.height = this.h + 'px';
     this.fx.initSmoke(this.w, this.h, this.lowQuality ? 3 : 7);
+    this.band.resize(this.w, this.h, Math.max(2, Math.round(this.unit / 46)));
   }
 
   get candle() {
@@ -123,6 +126,7 @@ export class Scene {
       const p = this.parts[n.ch as PartId];
       if (!p) continue;
       p.glow = Math.min(1.3, p.glow + n.vel * (n.ch === 'drums' ? 0.25 : 0.45));
+      this.band.hit(n.ch as PartId, n.vel, n.drum);
       const prob = n.ch === 'drums' || n.ch === 'perc' ? 0.12 : 0.45;
       if (Math.random() < prob * (this.lowQuality ? 0.4 : 1)) {
         const { x, y } = this.partPos(n.ch as PartId);
@@ -207,7 +211,7 @@ export class Scene {
     // spotlights + silhouettes
     if (main) {
       for (const p of Object.keys(POS) as PartId[]) this.spot(p, now);
-      for (const p of Object.keys(POS) as PartId[]) this.figure(p, now);
+      this.drawBand(now);
     }
 
     // smoke
@@ -322,104 +326,13 @@ export class Scene {
     ctx.fill();
   }
 
-  private figure(p: PartId, now: number) {
-    const v = this.parts[p];
-    if (v.joinedAt < 0) return;
-    const { ctx } = this;
-    const fade = Math.min(1, (now - v.joinedAt) / 2.5);
-    const { x, y } = this.partPos(p);
-    const s = this.unit;
-    const sway = this.reduced ? 0 : Math.sin(now * 2.1 + POS[p] * 10) * s * 0.008 * (0.5 + v.glow);
-    ctx.save();
-    ctx.globalAlpha = fade;
-    const rim = Math.min(1, 0.15 + v.glow * 0.6 + this.leadLevel[p] * 0.5);
-    if (!this.lowQuality) {
-      ctx.shadowColor = `hsla(${HUE[p]},90%,60%,${rim})`;
-      ctx.shadowBlur = 6 + rim * 18;
+  private drawBand(now: number) {
+    const st = {} as Record<PartId, PartDrawState>;
+    for (const p of Object.keys(POS) as PartId[]) {
+      const v = this.parts[p];
+      st[p] = { joinedAge: v.joinedAt < 0 ? -1 : now - v.joinedAt, glow: v.glow, lead: this.leadLevel[p] };
     }
-    ctx.fillStyle = '#020307';
-    ctx.strokeStyle = `hsla(${HUE[p]},80%,62%,${rim * 0.8})`;
-    ctx.lineWidth = 1.2;
-    ctx.translate(x + sway, y);
-    const path = new Path2D();
-    const person = (px: number, seated: boolean, scale = 1) => {
-      const k = s * scale;
-      path.ellipse(px, -k * (seated ? 0.78 : 0.95), k * 0.075, k * 0.09, 0, 0, Math.PI * 2);
-      const top = -k * (seated ? 0.66 : 0.83);
-      const hip = -k * (seated ? 0.3 : 0.45);
-      path.moveTo(px - k * 0.13, top);
-      path.quadraticCurveTo(px, top - k * 0.04, px + k * 0.13, top);
-      path.lineTo(px + k * 0.1, hip);
-      path.lineTo(px - k * 0.1, hip);
-      path.closePath();
-      if (seated) {
-        path.rect(px - k * 0.1, hip, k * 0.26, k * 0.07);
-        path.rect(px + k * 0.1, hip, k * 0.06, -hip);
-      } else {
-        path.rect(px - k * 0.09, hip, k * 0.07, -hip);
-        path.rect(px + k * 0.02, hip, k * 0.07, -hip);
-      }
-    };
-    switch (p) {
-      case 'bass': {
-        person(-s * 0.08, false);
-        // upright bass: two lobes + neck
-        path.ellipse(s * 0.14, -s * 0.22, s * 0.14, s * 0.2, -0.12, 0, Math.PI * 2);
-        path.ellipse(s * 0.11, -s * 0.5, s * 0.1, s * 0.14, -0.12, 0, Math.PI * 2);
-        path.rect(s * 0.05, -s * 1.12, s * 0.025, s * 0.55);
-        break;
-      }
-      case 'drums': {
-        person(0, true);
-        path.ellipse(0, -s * 0.2, s * 0.2, s * 0.2, 0, 0, Math.PI * 2);
-        path.ellipse(-s * 0.3, -s * 0.36, s * 0.11, s * 0.035, 0, 0, Math.PI * 2);
-        path.ellipse(s * 0.32, -s * 0.62, s * 0.18, s * 0.025, 0.12, 0, Math.PI * 2);
-        path.ellipse(-s * 0.36, -s * 0.66, s * 0.15, s * 0.022, -0.1, 0, Math.PI * 2);
-        path.rect(s * 0.31, -s * 0.62, s * 0.012, s * 0.62);
-        path.rect(-s * 0.37, -s * 0.66, s * 0.012, s * 0.66);
-        break;
-      }
-      case 'piano': {
-        // grand piano with raised lid, player on the right
-        path.moveTo(-s * 0.55, -s * 0.42);
-        path.quadraticCurveTo(-s * 0.6, -s * 0.62, -s * 0.3, -s * 0.6);
-        path.lineTo(s * 0.12, -s * 0.5);
-        path.lineTo(s * 0.12, -s * 0.38);
-        path.lineTo(-s * 0.55, -s * 0.38);
-        path.closePath();
-        path.moveTo(-s * 0.5, -s * 0.6);
-        path.lineTo(-s * 0.1, -s * 0.95);
-        path.lineTo(-s * 0.06, -s * 0.92);
-        path.lineTo(-s * 0.3, -s * 0.6);
-        path.closePath();
-        path.rect(-s * 0.5, -s * 0.38, s * 0.03, s * 0.38);
-        path.rect(s * 0.07, -s * 0.38, s * 0.03, s * 0.38);
-        person(s * 0.3, true);
-        break;
-      }
-      case 'guitar': {
-        person(0, true);
-        path.ellipse(s * 0.06, -s * 0.38, s * 0.15, s * 0.1, -0.5, 0, Math.PI * 2);
-        path.moveTo(s * 0.12, -s * 0.44);
-        path.lineTo(s * 0.42, -s * 0.66);
-        path.lineTo(s * 0.43, -s * 0.63);
-        path.lineTo(s * 0.14, -s * 0.4);
-        path.closePath();
-        break;
-      }
-      case 'perc': {
-        person(0, false, 0.92);
-        const lift = v.glow * s * 0.05;
-        path.ellipse(-s * 0.16, -s * 0.62 - lift, s * 0.03, s * 0.03, 0, 0, Math.PI * 2);
-        path.ellipse(s * 0.16, -s * 0.62 - lift, s * 0.03, s * 0.03, 0, 0, Math.PI * 2);
-        break;
-      }
-    }
-    ctx.fill(path);
-    ctx.shadowBlur = 0;
-    ctx.globalAlpha = fade * rim;
-    ctx.stroke(path);
-    ctx.restore();
+    this.band.draw(this.ctx, (p) => this.partPos(p), this.unit, st, now, this.reduced);
   }
 
   private candleDraw(now: number) {
